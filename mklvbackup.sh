@@ -3,7 +3,7 @@
 main(){
 
     # Расположение журнала
-    LOG="/var/log/mkbackup.log"
+    LOG="/var/log/mklvbackup.log"
 
     # Группа томов
     VGROUP="$1"
@@ -17,30 +17,31 @@ main(){
     # Подготовка
     # Делаем паузу в пять минут
     # -------------------------
-    fancy-log notice "MKLVBACKUP started. Waiting 5 minutes before making actual backups."
-
+    fancy-log notice "\033[01;32mMKLVBACKUP\033[0m started. Waiting 5 minutes before making actual backup."
+    notify 'normal' "Backup process started!\nWaiting for <b>5 minutes</b> before starting an actual backup."
+    #sleep 300
 
     # Создание снапшотов томов
     for VOLUME in $VOLUMES
     do
-    echo "Working with $VOLUME..."
+    fancy-log notice "Starting backup process"
     # Проверка на снапшот
     if [ -z $(lvs --noheadings -o origin $VGROUP/$VOLUME) ]
     then
         # Если поле origin пусто (-z), то том не
         # является снапшотом
-        echo "Volume $VOLUME is not a snapshot"
         SNAPSHOT="$VOLUME-backup-snapshot"
-        lvcreate -L 4G -s -n $SNAPSHOT $VGROUP/$VOLUME
+        lvcreate -L 4G -s -n $SNAPSHOT $VGROUP/$VOLUME #>> $LOG
         pv /dev/$VGROUP/$SNAPSHOT | zstd -16 -T4 -q -o "$BACKUPDIR/$VGROUP-$VOLUME-$(date +%d-%m-%Y-%H%M).zst"
         lvremove -y $VGROUP/$SNAPSHOT
     else
-        echo "Volume $VOLUME is a snapshot, skipping"
+        fancy-log warning "Volume $VOLUME is an existing snapshot, skipping"
     fi
     done
 }
 
 # Журналирование
+
 fancy-log ()
 # Uses $LOG as a log file name, if defined.
 # If not defined, tries to use the first argument as
@@ -102,6 +103,24 @@ fancy-log ()
     # Appending to a log file
     printf "$writeout\n" >> $log
 }
+
+# Перегружаем функцию для корректной отсылки уведомлений
+# Credit: https://stackoverflow.com/a/49533938/9520367
+function notify-send() {
+    #Detect the name of the display in use
+    local display=":$(ls /tmp/.X11-unix/* | sed 's#/tmp/.X11-unix/X##' | head -n 1)"
+    #Detect the user using such display
+    local user=$(who | grep '('$display')' | awk '{print $1}' | head -n 1)
+    #Detect the id of the user
+    local uid=$(id -u $user)
+    sudo -u $user DISPLAY=$display DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$uid/bus notify-send "$@"
+}
+notify(){
+    # Usage: notify <urgency> <message>
+    notify-send -u "$1" "MKLVBACKUP" "$2"
+}
+
+
 
 
 main "$@"; exit 0
